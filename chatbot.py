@@ -1,96 +1,58 @@
-import nltk
-
-# Auto-download if not already installed
-try:
-    nltk.data.find('tokenizers/punkt')
-except LookupError:
-    nltk.download('punkt')
-
-try:
-    nltk.data.find('corpora/wordnet')
-except LookupError:
-    nltk.download('wordnet')
-
 import random
+import json
 import nltk
-import string
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+from nltk.stem import PorterStemmer
+from sklearn.feature_extraction.text import CountVectorizer
+from sklearn.naive_bayes import MultinomialNB
 
-# Download NLTK data (only needed once)
+# Download required NLTK data
 nltk.download('punkt')
-nltk.download('wordnet')
 
-# Sample corpus - Replace with your business FAQ or knowledge base
-corpus = """
-Hello, how can I help you?
-What are your business hours?
-We are open from 9 AM to 6 PM, Monday to Friday.
-Where are you located?
-Our office is in Bangalore, India.
-How do I reset my password?
-Click on the 'Forgot Password' link on the login page and follow instructions.
-Do you offer technical support?
-Yes, we offer 24/7 technical support.
-How can I contact customer care?
-You can call our support line or email us at support@example.com.
-"""
+# Load training data from JSON
+with open("train_data.json") as file:
+    training_data = json.load(file)
 
-# Preprocessing
-sent_tokens = nltk.sent_tokenize(corpus.lower())  # Convert to lower-case sentences
-lemmer = nltk.stem.WordNetLemmatizer()
+# Initialize stemmer and data holders
+stemmer = PorterStemmer()
+training_sentences = []
+intent_labels = []
+intent_to_responses = {}
 
-def LemTokens(tokens):
-    return [lemmer.lemmatize(token) for token in tokens]
+# Preprocess the training data
+for intent in training_data['intents']:
+    label = intent['tag']
+    intent_to_responses[label] = intent['responses']
+    for sentence in intent['patterns']:
+        tokenized = nltk.word_tokenize(sentence.lower())
+        stemmed = [stemmer.stem(word) for word in tokenized]
+        processed_sentence = " ".join(stemmed)
+        training_sentences.append(processed_sentence)
+        intent_labels.append(label)
 
-remove_punct_dict = dict((ord(punct), None) for punct in string.punctuation)
+# Convert text data to numerical features
+vectorizer = CountVectorizer()
+X = vectorizer.fit_transform(training_sentences)
+y = intent_labels
 
-def LemNormalize(text):
-    return LemTokens(nltk.word_tokenize(text.lower().translate(remove_punct_dict)))
+# Train the model
+model = MultinomialNB()
+model.fit(X, y)
 
-# Greeting inputs/outputs
-greet_inputs = ("hello", "hi", "greetings", "sup", "what's up", "hey")
-greet_responses = ["Hi there!", "Hello!", "Greetings!", "Hey! How can I assist you?"]
-
-def greet(sentence):
-    for word in sentence.split():
-        if word.lower() in greet_inputs:
-            return random.choice(greet_responses)
-
-# Generate response using TF-IDF
-def generate_response(user_input):
-    user_input = user_input.lower()
-    sent_tokens.append(user_input)
-
-    tfidf_vec = TfidfVectorizer(tokenizer=LemNormalize, stop_words='english')
-    tfidf = tfidf_vec.fit_transform(sent_tokens)
-
-    vals = cosine_similarity(tfidf[-1], tfidf[:-1])
-    idx = vals.argsort()[0][-1]
-    flat = vals.flatten()
-    flat.sort()
-    score = flat[-1]
-
-    sent_tokens.pop()
-
-    if score == 0:
-        return "I'm sorry, I don't understand that. Could you rephrase?"
-    else:
-        return sent_tokens[idx]
+# Function to generate chatbot response
+def chatbot_response(user_message):
+    tokens = nltk.word_tokenize(user_message.lower())
+    stemmed_tokens = [stemmer.stem(word) for word in tokens]
+    input_vector = vectorizer.transform([" ".join(stemmed_tokens)])
+    predicted_intent = model.predict(input_vector)[0]
+    return random.choice(intent_to_responses[predicted_intent])
 
 # Chat loop
-def chatbot():
-    print("BOT: Hello! I'm your AI assistant. Type 'bye' to exit.")
-    while True:
-        user_input = input("YOU: ")
-        if user_input.lower() == 'bye':
-            print("BOT: Goodbye! Have a nice day.")
-            break
-        elif greet(user_input) is not None:
-            print(f"BOT: {greet(user_input)}")
-        else:
-            print(f"BOT: {generate_response(user_input)}")
+print("🤖 AI Chatbot: Hello! Type 'exit' to stop.")
+while True:
+    user_text = input("You: ")
+    if user_text.lower() == "exit":
+        print("🤖 Chatbot: Bye! Have a nice day.")
+        break
+    response = chatbot_response(user_text)
+    print("🤖 Chatbot:", response)
 
-# Run the chatbot
-if __name__ == "__main__":
-    chatbot()
